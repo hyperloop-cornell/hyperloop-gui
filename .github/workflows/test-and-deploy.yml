@@ -7,6 +7,7 @@ on:
 
 jobs:
   test-api:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     name: Test Cloud Services API
 
@@ -32,6 +33,7 @@ jobs:
         pytest tests/ -v --tb=short
 
   test-web:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     name: Test Web Client
 
@@ -77,28 +79,26 @@ jobs:
     - name: Configure SSH
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/CUloop.pem
-        chmod 600 ~/.ssh/CUloop.pem
-        printf "Host ec2\n  HostName ${{ secrets.EC2_HOST }}\n  User ${{ secrets.EC2_USER }}\n  IdentityFile ~/.ssh/CUloop.pem\n  StrictHostKeyChecking no\n" >> ~/.ssh/config
+        echo "${{ secrets.EC2_PEM_KEY }}" > ~/.ssh/CULoop.pem
+        chmod 600 ~/.ssh/CULoop.pem
+        printf "Host ec2\n  HostName ${{ secrets.EC2_HOST }}\n  User ${{ secrets.EC2_USER }}\n  IdentityFile ~/.ssh/CULoop.pem\n  StrictHostKeyChecking no\n" >> ~/.ssh/config
 
     - name: Deploy to EC2
       run: |
         ssh ec2 << 'EOF'
-          cd /home/ubuntu/electrical-gui
+          cd ~
+          
+          # Update web client
+          cd web-client
           git pull origin main
-          
-          # Deploy API
-          cd cloud-services
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pm2 restart cloud-api || pm2 start "uvicorn src.main:app --host 0.0.0.0 --port 8080" --name cloud-api
-          
-          # Deploy Web Client
-          cd ../web-client
           npm ci
           npm run build
-          pm2 restart web-client || pm2 start "npm run preview" --name web-client
+          sudo systemctl restart frontend
           
-          # Save PM2 configuration
-          pm2 save
+          # Update API
+          cd ../cloud-services
+          git pull origin main
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo systemctl restart backend
         EOF
