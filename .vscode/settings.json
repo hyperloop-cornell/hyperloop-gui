@@ -1,7 +1,0 @@
-{
-  "python.testing.pytestArgs": [
-    "web-client"
-  ],
-  "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true
-}
