@@ -21,15 +21,15 @@ jobs:
         python-version: '3.11'
 
     - name: Install API dependencies
+      working-directory: ./cloud-services
       run: |
-        cd cloud-services && \
-        python -m pip install --upgrade pip && \
-        pip install -r requirements.txt && \
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
         pip install pytest pytest-asyncio httpx
 
     - name: Run API tests
+      working-directory: ./cloud-services
       run: |
-        cd cloud-services
         pytest tests/ -v --tb=short
 
   test-web:
@@ -47,23 +47,23 @@ jobs:
         node-version: '20'
 
     - name: Install web dependencies
+      working-directory: ./web-client
       run: |
-        cd web-client
         npm ci
 
     - name: Run TypeScript type check
+      working-directory: ./web-client
       run: |
-        cd web-client
         npm run type-check
 
     - name: Run linter
+      working-directory: ./web-client
       run: |
-        cd web-client
         npm run lint
 
     - name: Build web client
+      working-directory: ./web-client
       run: |
-        cd web-client
         npm run build
 
   deploy:
@@ -96,9 +96,9 @@ jobs:
           sudo systemctl restart frontend
           
           # Update API
-          cd ../cloud-services && \
-          git pull origin main && \
-          python -m pip install --upgrade pip && \
-          pip install -r requirements.txt && \
+          cd ../cloud-services
+          git pull origin main
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
           sudo systemctl restart backend
         EOF
