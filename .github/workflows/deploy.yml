@@ -1,0 +1,43 @@
+name: Deploy to EC2
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: 'Git branch to deploy'
+        required: false
+        type: string
+        default: 'main'
+      repo_base_dir:
+        description: 'Base directory on EC2 where cloud-services and web-client are located'
+        required: false
+        type: string
+        default: '/home/ubuntu'
+    secrets:
+      EC2_PEM_KEY:
+        description: 'EC2 PEM key for SSH authentication'
+        required: true
+      EC2_HOST:
+        description: 'EC2 host address'
+        required: true
+      EC2_USER:
+        description: 'EC2 SSH user'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to EC2
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Deploy to EC2
+      uses: ./.github/actions/deploy-to-ec2
+      with:
+        ec2_pem_key: ${{ secrets.EC2_PEM_KEY }}
+        ec2_host: ${{ secrets.EC2_HOST }}
+        ec2_user: ${{ secrets.EC2_USER }}
+        repo_base_dir: ${{ inputs.repo_base_dir }}
+        branch: ${{ inputs.branch }}
