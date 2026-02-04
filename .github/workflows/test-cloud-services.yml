@@ -17,6 +17,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
+      with:
+        submodules: true
 
     - name: Install Python dependencies
       uses: ./.github/actions/install-python-requirements
