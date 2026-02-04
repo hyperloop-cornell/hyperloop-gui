@@ -23,7 +23,7 @@ runs:
       with:
         python-version: ${{ inputs.python_version }}
         cache: 'pip'
-        cache-dependency-path: ${{ inputs.working_directory }}/${{ inputs.requirements_path }}
+        cache-dependency-path: '${{ inputs.working_directory }}/${{ inputs.requirements_path }}'
 
     - name: Install dependencies
       shell: bash
