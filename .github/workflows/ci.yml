@@ -1,0 +1,30 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  # Run tests on PRs (not on merge)
+  test-api:
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/test-cloud-services.yml
+    with:
+      python_version: '3.11'
+
+  test-web:
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/test-web-client.yml
+    with:
+      node_version: '20'
+
+  # Deploy when PR is merged to main
+  deploy:
+    if: github.event.pull_request.merged == true && github.event.action == 'closed'
+    needs: [test-api, test-web]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      branch: 'main'
+      repo_base_dir: '/home/ubuntu'
+    secrets: inherit

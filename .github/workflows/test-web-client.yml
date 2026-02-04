@@ -1,0 +1,53 @@
+name: Test Web Client
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version to use'
+        required: false
+        type: string
+        default: '20'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test Web Client
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: 'npm'
+        cache-dependency-path: web-client/package-lock.json
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: web-client
+      run: npm ci
+
+    - name: Run TypeScript type check
+      shell: bash
+      working-directory: web-client
+      run: npm run type-check
+
+    - name: Run linter
+      shell: bash
+      working-directory: web-client
+      run: npm run lint
+
+    - name: Build web client
+      shell: bash
+      working-directory: web-client
+      run: npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: web-client-build
+        path: web-client/dist/
+        if-no-files-found: ignore

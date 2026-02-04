@@ -1,0 +1,92 @@
+name: 'Deploy to EC2'
+description: 'Deploy application to EC2 using SSH with venv support'
+
+inputs:
+  ec2_pem_key:
+    description: 'EC2 PEM key content for SSH authentication'
+    required: true
+  ec2_host:
+    description: 'EC2 host address'
+    required: true
+  ec2_user:
+    description: 'EC2 SSH user'
+    required: true
+  repo_base_dir:
+    description: 'Base directory on EC2 where cloud-services and web-client are located'
+    required: false
+    default: '/home/ubuntu'
+  branch:
+    description: 'Git branch to deploy'
+    required: false
+    default: 'main'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ec2_pem_key }}" > ~/.ssh/ec2_deploy.pem
+        chmod 600 ~/.ssh/ec2_deploy.pem
+        cat >> ~/.ssh/config << EOF
+        Host ec2-deploy
+          HostName ${{ inputs.ec2_host }}
+          User ${{ inputs.ec2_user }}
+          IdentityFile ~/.ssh/ec2_deploy.pem
+          StrictHostKeyChecking no
+        EOF
+
+    - name: Deploy to EC2
+      shell: bash
+      run: |
+        ssh ec2-deploy << 'DEPLOY_EOF'
+          set -e
+          
+          BASE_DIR="${{ inputs.repo_base_dir }}"
+          BRANCH="${{ inputs.branch }}"
+          
+          # Deploy Web Client
+          echo "Deploying web-client..."
+          cd "$BASE_DIR/web-client"
+          
+          # Update repository
+          git fetch origin
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+          
+          # Build web client
+          npm ci
+          npm run build
+          
+          # Restart frontend service
+          echo "Restarting frontend service..."
+          sudo systemctl restart frontend
+          
+          # Deploy Cloud Services API with venv
+          echo "Deploying cloud-services..."
+          cd "$BASE_DIR/cloud-services"
+          
+          # Update repository
+          git fetch origin
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+          
+          # Create venv if it doesn't exist
+          if [ ! -d "venv" ]; then
+            echo "Creating virtual environment..."
+            python3 -m venv venv
+          fi
+          
+          # Activate venv and install dependencies
+          source venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          deactivate
+          
+          # Restart backend service
+          echo "Restarting backend service..."
+          sudo systemctl restart backend
+          
+          echo "✅ Deployment completed successfully!"
+        DEPLOY_EOF
