@@ -7,3 +7,6 @@
 [submodule "web-client"]
 	path = web-client
 	url = https://github.com/hyperloop-cornell/web-client
+[submodule "wifi-fallback-relay"]
+	path = wifi-fallback-relay
+	url = https://github.com/hyperloop-cornell/wifi-fallback-relay.git
