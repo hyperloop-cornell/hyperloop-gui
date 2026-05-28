@@ -91,11 +91,11 @@ Edge / RPi
 
 Project visuals and diagrams used above live in `res/readme/`:
 
-- ![res/readme/cloud_service_diagram.png](res/readme/cloud_service_diagram.png)
-- ![res/readme/rpi_hub_diagram.png](res/readme/rpi_hub_diagram.png)
-- ![res/readme/gui_diagram.png](res/readme/gui_diagram.png)
 - ![res/readme/gui_telemetry_screenshot.png](res/readme/gui_telemetry_screenshot.png)
 - ![res/readme/rpi_hub_server_real_photo.jpg](res/readme/rpi_hub_server_real_photo.jpg)
+- [res/readme/cloud_service_diagram.png](res/readme/cloud_service_diagram.png)
+- [res/readme/rpi_hub_diagram.png](res/readme/rpi_hub_diagram.png)
+- [res/readme/gui_diagram.png](res/readme/gui_diagram.png)
 
 ## License
 
