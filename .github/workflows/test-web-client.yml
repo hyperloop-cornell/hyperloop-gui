@@ -33,6 +33,16 @@ jobs:
       working-directory: web-client
       run: npm ci
 
+    - name: Check API types match the cloud contract
+      shell: bash
+      working-directory: web-client
+      run: |
+        npm run gen:types
+        git diff --exit-code -- src/types/api.gen.ts || {
+          echo "src/types/api.gen.ts is out of date: run 'npm run gen:types' in web-client and commit the result"
+          exit 1
+        }
+
     - name: Run TypeScript type check
       shell: bash
       working-directory: web-client

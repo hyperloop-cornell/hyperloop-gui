@@ -12,15 +12,15 @@ A modular suite for hub management, telemetry, and a modern web GUI for Hyperloo
 - Cloud API: [cloud-services](cloud-services)
 - Hub agent & server: [rpi-hub-server](rpi-hub-server)
 - Browser UI: [web-client](web-client)
-- Fallback relay: [wifi-fallback-relay](wifi-fallback-relay)
+- Uplink manager (cellular hub): [wifi-fallback-relay](wifi-fallback-relay)
 
 Anyone is welcome to view the live GUI at: https://gui.cornellhyperloop.com/
 
 **Repository layout**
 - `cloud-services/` — FastAPI backend for authentication, websockets, hub coordination, and telemetry storage.
-- `rpi-hub-server/` — Edge service that runs on Raspberry Pi devices: serial/USB management, hardware command tasks, and a lightweight FastAPI/WS endpoint.
+- `rpi-hub-server/` — Edge service that runs on every Raspberry Pi hub (same code, per-Pi config profile): USB serial boards (Arduino Uno R3/R4, Mega, Nano, STM32F407G-DISC1), flashing, and the cloud uplink. Includes a simulated-board mode for development without hardware.
 - `web-client/` — React + TypeScript single-page app (Vite) for live telemetry, device control, and charting.
-- `wifi-fallback-relay/` — Small Python-based relay service for network fallback scenarios.
+- `wifi-fallback-relay/` — Uplink manager for the one hub with a cellular HAT: prefers Wi-Fi, falls back to cellular, and reports the active link.
 
 ## Architecture
 
@@ -41,9 +41,10 @@ A short video of the GUI being used to operate our team's minipod is attached [h
 ## Technical specifics
 
 - Backend: `FastAPI` (>=0.115.0) + `uvicorn` for ASGI serving. WebSocket hubs use the `websockets` package and integrate with Pydantic models for typed messages.
-- Auth: JWT-based tokens (see `cloud-services/src/api/auth.py`) with password hashing via `passlib[bcrypt]`.
+- Auth: NetID allowlist plus one shared team password (bcrypt), JWT sessions, and a view-only mode; hubs authenticate with per-hub device tokens (see `cloud-services/src/auth/`).
 - Data models: `pydantic` / `pydantic-settings` for config and runtime validation.
-- Edge: `pyserial` for hardware serial connections, `psutil` for health metrics, configurable tasks and reconnect logic in `rpi-hub-server/src/tasks/`.
+- Edge: `pyserial` for serial connections, arduino-cli and OpenOCD for flashing, `psutil` for health metrics; components are wired in `rpi-hub-server/src/runtime.py`.
+- Contract: `cloud-services/contracts/openapi.json` (REST + WebSocket messages) is generated from the cloud models; the web client's types are generated from it (`npm run gen:types`).
 - Frontend: React 19 + TypeScript, built with Vite; key libs include `recharts` for charts and `zustand` for state.
 
 ## Local development
@@ -78,14 +79,21 @@ npm run dev
 
 Edge / RPi
 
-1. Install dependencies on the target device or in a venv under `rpi-hub-server` and configure `config/config.yaml` as needed.
-2. Start the hub agent with: `python -m src.main` (or use the provided systemd units in `systemd/` for production).
-3. (Optional) If no physical Raspberry Pis are avaliable there is a `mock_hub_simulator.py` script at [/tests](rpi-hub-server/tests/mock_hub_simulator.py)
+1. Install dependencies in a venv under `rpi-hub-server`.
+2. Without hardware: `HUB_PROFILE=dev-sim python -m src.main` runs simulated boards against a local cloud-services.
+3. On a Pi: follow [.claude/rpi-hub-setup.md](.claude/rpi-hub-setup.md) (profiles `lab-hub` / `cellular-hub`, systemd unit in `rpi-hub-server/deploy/systemd/`).
+
+The web client also has a browser-only mock: `npm run dev:mock` in `web-client`.
+
+## Setup guides
+
+- [.claude/auth-setup.md](.claude/auth-setup.md): production login (NetID allowlist + team password), hub device tokens, rotation.
+- [.claude/rpi-hub-setup.md](.claude/rpi-hub-setup.md): setting up a Raspberry Pi hub, board checks, and the cellular hub's Wi-Fi/cellular failover.
 
 ## Tests & CI
 
-- Python: `pytest` and `pytest-asyncio` are used across services. See tests in each service folder (e.g., `cloud-services/tests` and `rpi-hub-server/tests`).
-- Frontend: TypeScript type checks and ESLint are enforced in `web-client` (see `package.json` scripts).
+- Python: `pytest` and `pytest-asyncio` in `cloud-services/tests`, `rpi-hub-server/tests` and `wifi-fallback-relay/tests`; CI runs all three.
+- Frontend: TypeScript type checks, ESLint, a production build, and a check that `src/types/api.gen.ts` matches the cloud contract.
 
 ## Assets and visuals
 
