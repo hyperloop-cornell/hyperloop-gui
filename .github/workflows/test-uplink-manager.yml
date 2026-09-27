@@ -1,0 +1,35 @@
+name: Test Uplink Manager
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: 'Python version to use'
+        required: false
+        type: string
+        default: '3.11'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test Uplink Manager (wifi-fallback-relay)
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        submodules: recursive
+        token: ${{ github.token }}
+
+    - name: Install Python dependencies
+      uses: ./.github/actions/install-python-requirements
+      with:
+        requirements_path: requirements.txt
+        working_directory: wifi-fallback-relay
+        python_version: ${{ inputs.python_version }}
+
+    - name: Run tests
+      shell: bash
+      working-directory: wifi-fallback-relay
+      run: |
+        pytest tests/ -v --tb=short

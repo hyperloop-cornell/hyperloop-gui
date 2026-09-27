@@ -19,6 +19,18 @@ jobs:
     with:
       node_version: '20'
 
+  test-hub:
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/test-rpi-hub-server.yml
+    with:
+      python_version: '3.11'
+
+  test-uplink:
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/test-uplink-manager.yml
+    with:
+      python_version: '3.11'
+
   # Deploy when PR is merged to main
   deploy:
     if: github.event.pull_request.merged == true && github.event.action == 'closed'
