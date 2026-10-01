@@ -41,3 +41,4 @@ jobs:
         ec2_user: ${{ secrets.EC2_USER }}
         repo_base_dir: ${{ inputs.repo_base_dir }}
         branch: ${{ inputs.branch }}
+        web_api_base_url: ${{ vars.WEB_API_BASE_URL }}

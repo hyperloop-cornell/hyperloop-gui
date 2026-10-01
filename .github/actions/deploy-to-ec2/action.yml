@@ -1,5 +1,5 @@
 name: 'Deploy to EC2'
-description: 'Deploy application to EC2 using SSH with venv support'
+description: 'Build the web client on the runner, then deploy it and cloud-services to EC2 over SSH'
 
 inputs:
   ec2_pem_key:
@@ -19,10 +19,42 @@ inputs:
     description: 'Git branch to deploy'
     required: false
     default: 'main'
+  web_api_base_url:
+    description: 'API URL baked into the web-client build; empty keeps the value in web-client/.env.production'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
   steps:
+    # The EC2 instance has too little memory for `vite build`, so the runner builds the bundle.
+    - name: Check out web-client
+      uses: actions/checkout@v5
+      with:
+        repository: hyperloop-cornell/web-client
+        ref: ${{ inputs.branch }}
+        path: .deploy/web-client
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: '.deploy/web-client/package-lock.json'
+
+    - name: Build web-client
+      shell: bash
+      working-directory: .deploy/web-client
+      env:
+        WEB_API_BASE_URL: ${{ inputs.web_api_base_url }}
+      run: |
+        if [ -n "$WEB_API_BASE_URL" ]; then
+          export VITE_API_BASE_URL="$WEB_API_BASE_URL"
+        fi
+        npm ci
+        npm run build
+        tar -czf "$RUNNER_TEMP/web-client-dist.tgz" -C dist .
+
     - name: Configure SSH
       shell: bash
       run: |
@@ -36,6 +68,10 @@ runs:
           IdentityFile ~/.ssh/ec2_deploy.pem
           StrictHostKeyChecking no
         EOF
+
+    - name: Upload web-client build
+      shell: bash
+      run: scp "$RUNNER_TEMP/web-client-dist.tgz" ec2-deploy:/tmp/web-client-dist.tgz
 
     - name: Deploy to EC2
       shell: bash
@@ -55,9 +91,12 @@ runs:
           git checkout "$BRANCH"
           git pull origin "$BRANCH"
           
-          # Build web client
+          # `vite preview` serves dist/ from this checkout, so it still needs node_modules
           npm ci
-          npm run build
+          rm -rf dist
+          mkdir dist
+          tar -xzf /tmp/web-client-dist.tgz -C dist
+          rm -f /tmp/web-client-dist.tgz
           
           # Restart frontend service
           echo "Restarting frontend service..."
