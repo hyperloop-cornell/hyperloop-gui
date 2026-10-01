@@ -12,7 +12,7 @@ inputs:
     description: 'EC2 SSH user'
     required: true
   repo_base_dir:
-    description: 'Base directory on EC2 where cloud-services and web-client are located'
+    description: 'Base directory on EC2 where cloud-services is located'
     required: false
     default: '/home/ubuntu'
   branch:
@@ -20,7 +20,7 @@ inputs:
     required: false
     default: 'main'
   web_api_base_url:
-    description: 'API URL baked into the web-client build; empty keeps the value in web-client/.env.production'
+    description: 'API URL baked into the web-client build; empty means the page origin, which nginx proxies to cloud-services'
     required: false
     default: ''
 
@@ -48,9 +48,8 @@ runs:
       env:
         WEB_API_BASE_URL: ${{ inputs.web_api_base_url }}
       run: |
-        if [ -n "$WEB_API_BASE_URL" ]; then
-          export VITE_API_BASE_URL="$WEB_API_BASE_URL"
-        fi
+        # Set even when empty so it overrides web-client/.env.production
+        export VITE_API_BASE_URL="$WEB_API_BASE_URL"
         npm ci
         npm run build
         tar -czf "$RUNNER_TEMP/web-client-dist.tgz" -C dist .
@@ -69,9 +68,9 @@ runs:
           StrictHostKeyChecking no
         EOF
 
-    - name: Upload web-client build
+    - name: Upload web-client build and nginx config
       shell: bash
-      run: scp "$RUNNER_TEMP/web-client-dist.tgz" ec2-deploy:/tmp/web-client-dist.tgz
+      run: scp "$RUNNER_TEMP/web-client-dist.tgz" "$GITHUB_WORKSPACE/deploy/nginx/hyperloop-gui.conf" ec2-deploy:/tmp/
 
     - name: Deploy to EC2
       shell: bash
@@ -82,26 +81,36 @@ runs:
           BASE_DIR="${{ inputs.repo_base_dir }}"
           BRANCH="${{ inputs.branch }}"
           
-          # Deploy Web Client
+          # Deploy Web Client: nginx serves the build and proxies the API (deploy/nginx/hyperloop-gui.conf)
           echo "Deploying web-client..."
-          cd "$BASE_DIR/web-client"
-          
-          # Update repository
-          git fetch origin
-          git checkout "$BRANCH"
-          git pull origin "$BRANCH"
-          
-          # `vite preview` serves dist/ from this checkout, so it still needs node_modules
-          npm ci
-          rm -rf dist
-          mkdir dist
-          tar -xzf /tmp/web-client-dist.tgz -C dist
+          if ! command -v nginx >/dev/null; then
+            sudo apt-get update -q
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx
+            # The stock site listens on :80, which this deployment does not use
+            sudo rm -f /etc/nginx/sites-enabled/default
+          fi
+
+          WEB_ROOT=/var/www/hyperloop-gui
+          sudo rm -rf "$WEB_ROOT.new" "$WEB_ROOT.old"
+          sudo mkdir -p "$WEB_ROOT.new"
+          sudo tar -xzf /tmp/web-client-dist.tgz --no-same-owner -C "$WEB_ROOT.new"
+          if [ -d "$WEB_ROOT" ]; then sudo mv "$WEB_ROOT" "$WEB_ROOT.old"; fi
+          sudo mv "$WEB_ROOT.new" "$WEB_ROOT"
+          sudo rm -rf "$WEB_ROOT.old"
           rm -f /tmp/web-client-dist.tgz
-          
-          # Restart frontend service
-          echo "Restarting frontend service..."
-          sudo systemctl restart frontend
-          
+
+          sudo install -m 644 /tmp/hyperloop-gui.conf /etc/nginx/sites-available/hyperloop-gui
+          sudo ln -sfn /etc/nginx/sites-available/hyperloop-gui /etc/nginx/sites-enabled/hyperloop-gui
+          rm -f /tmp/hyperloop-gui.conf
+          sudo nginx -t
+
+          # nginx takes over port 4173 from the old `vite preview` service
+          if systemctl cat frontend >/dev/null 2>&1; then
+            sudo systemctl disable --now frontend
+          fi
+          sudo systemctl enable nginx
+          sudo systemctl reload-or-restart nginx
+
           # Deploy Cloud Services API with venv
           echo "Deploying cloud-services..."
           cd "$BASE_DIR/cloud-services"
