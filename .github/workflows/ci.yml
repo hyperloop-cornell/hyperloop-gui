@@ -6,15 +6,16 @@ on:
     types: [opened, synchronize, reopened, closed]
 
 jobs:
-  # Run tests on PRs (not on merge)
+  # Run tests on PRs. test-api and test-web also run on merge: deploy needs them,
+  # and a skipped job makes everything that needs it skip too.
   test-api:
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' || github.event.pull_request.merged == true
     uses: ./.github/workflows/test-cloud-services.yml
     with:
       python_version: '3.11'
 
   test-web:
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' || github.event.pull_request.merged == true
     uses: ./.github/workflows/test-web-client.yml
     with:
       node_version: '20'
