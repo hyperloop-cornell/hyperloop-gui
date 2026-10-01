@@ -9,7 +9,7 @@ on:
         type: string
         default: 'main'
       repo_base_dir:
-        description: 'Base directory on EC2 where cloud-services and web-client are located'
+        description: 'Base directory on EC2 where cloud-services is located'
         required: false
         type: string
         default: '/home/ubuntu'
