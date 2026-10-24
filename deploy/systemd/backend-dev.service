@@ -1,0 +1,18 @@
+# Dev cloud-services instance for test/* branches. Installed by the deploy-dev-to-ec2 action,
+# which replaces @APP_DIR@ and @USER@. Kept on localhost; nginx (hyperloop-gui-dev) proxies it.
+[Unit]
+Description=Hyperloop cloud-services (dev slot, test/* branches)
+After=network.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@APP_DIR@
+Environment=ENV_FILE=.env.dev
+ExecStart=@APP_DIR@/venv/bin/uvicorn src.main:app --host 127.0.0.1 --port 8081
+Restart=on-failure
+RestartSec=3
+# The instance is small; keep a misbehaving dev build from starving prod
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

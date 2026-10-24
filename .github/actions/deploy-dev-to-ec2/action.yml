@@ -1,0 +1,182 @@
+name: 'Deploy dev slot to EC2'
+description: >
+  Deploy the web-client and cloud-services commits pinned by the checked-out branch to the dev
+  slot on EC2 (nginx :4174 -> backend-dev :8081). Expects the caller to have checked out the
+  branch with submodules. Prod (port 4173, backend service) is not touched.
+
+inputs:
+  ec2_pem_key:
+    description: 'EC2 PEM key content for SSH authentication'
+    required: true
+  ec2_host:
+    description: 'EC2 host address'
+    required: true
+  ec2_user:
+    description: 'EC2 SSH user'
+    required: true
+  branch:
+    description: 'Branch being deployed (recorded in deploy-info.txt)'
+    required: true
+  dev_dir:
+    description: 'Directory on EC2 that holds the dev cloud-services copy'
+    required: false
+    default: '/home/ubuntu/dev'
+  prod_cloud_services_dir:
+    description: 'Prod cloud-services directory on EC2; its env file seeds the dev env file on first deploy'
+    required: false
+    default: '/home/ubuntu/cloud-services'
+  web_api_base_url:
+    description: 'API URL baked into the dev web-client build; empty means the page origin, which nginx proxies to backend-dev'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    # Builds exactly the web-client commit this branch pins, on the runner (EC2 is too small for vite build)
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: 'web-client/package-lock.json'
+
+    - name: Build web-client and package cloud-services
+      shell: bash
+      env:
+        WEB_API_BASE_URL: ${{ inputs.web_api_base_url }}
+        BRANCH: ${{ inputs.branch }}
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE/web-client"
+        # Set even when empty so it overrides web-client/.env.production (which points at prod)
+        export VITE_API_BASE_URL="$WEB_API_BASE_URL"
+        npm ci
+        npm run build
+
+        cd "$GITHUB_WORKSPACE"
+        {
+          echo "branch:         $BRANCH"
+          echo "gui commit:     $(git rev-parse HEAD)"
+          echo "web-client:     $(git -C web-client rev-parse HEAD)"
+          echo "cloud-services: $(git -C cloud-services rev-parse HEAD)"
+          echo "deployed at:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "run:            $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        } > web-client/dist/deploy-info.txt
+        cat web-client/dist/deploy-info.txt
+
+        tar -czf "$RUNNER_TEMP/web-client-dev.tgz" -C web-client/dist .
+        tar -czf "$RUNNER_TEMP/cloud-services-dev.tgz" -C cloud-services \
+          --exclude=.git --exclude=venv --exclude=.venv --exclude=__pycache__ --exclude='.env*' .
+
+    - name: Configure SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ec2_pem_key }}" > ~/.ssh/ec2_deploy.pem
+        chmod 600 ~/.ssh/ec2_deploy.pem
+        cat >> ~/.ssh/config << EOF
+        Host ec2-deploy
+          HostName ${{ inputs.ec2_host }}
+          User ${{ inputs.ec2_user }}
+          IdentityFile ~/.ssh/ec2_deploy.pem
+          StrictHostKeyChecking no
+        EOF
+
+    - name: Upload build, source and configs
+      shell: bash
+      run: |
+        scp "$RUNNER_TEMP/web-client-dev.tgz" "$RUNNER_TEMP/cloud-services-dev.tgz" \
+          "$GITHUB_WORKSPACE/deploy/nginx/hyperloop-gui-dev.conf" \
+          "$GITHUB_WORKSPACE/deploy/systemd/backend-dev.service" \
+          ec2-deploy:/tmp/
+
+    - name: Deploy dev slot
+      shell: bash
+      run: |
+        ssh ec2-deploy << 'DEPLOY_EOF'
+          set -euo pipefail
+
+          DEV_DIR="${{ inputs.dev_dir }}"
+          PROD_APP="${{ inputs.prod_cloud_services_dir }}"
+          APP="$DEV_DIR/cloud-services"
+          WEB_ROOT=/var/www/hyperloop-gui-dev
+
+          # --- Web client (nginx :4174) ---
+          echo "Deploying dev web-client..."
+          if ! command -v nginx >/dev/null; then
+            sudo apt-get update -q
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx
+            sudo rm -f /etc/nginx/sites-enabled/default
+          fi
+          sudo rm -rf "$WEB_ROOT.new" "$WEB_ROOT.old"
+          sudo mkdir -p "$WEB_ROOT.new"
+          sudo tar -xzf /tmp/web-client-dev.tgz --no-same-owner -C "$WEB_ROOT.new"
+          if [ -d "$WEB_ROOT" ]; then sudo mv "$WEB_ROOT" "$WEB_ROOT.old"; fi
+          sudo mv "$WEB_ROOT.new" "$WEB_ROOT"
+          sudo rm -rf "$WEB_ROOT.old"
+          rm -f /tmp/web-client-dev.tgz
+
+          sudo install -m 644 /tmp/hyperloop-gui-dev.conf /etc/nginx/sites-available/hyperloop-gui-dev
+          sudo ln -sfn /etc/nginx/sites-available/hyperloop-gui-dev /etc/nginx/sites-enabled/hyperloop-gui-dev
+          rm -f /tmp/hyperloop-gui-dev.conf
+          sudo nginx -t
+          sudo systemctl reload-or-restart nginx
+
+          # --- Cloud services (backend-dev :8081) ---
+          echo "Deploying dev cloud-services..."
+          mkdir -p "$APP"
+          # Replace the source but keep the venv and the dev env file
+          find "$APP" -mindepth 1 -maxdepth 1 ! -name venv ! -name .env.dev -exec rm -rf {} +
+          tar -xzf /tmp/cloud-services-dev.tgz -C "$APP"
+          rm -f /tmp/cloud-services-dev.tgz
+
+          # First deploy only: start from prod's settings so the same logins and hub tokens work.
+          # Edit $APP/.env.dev afterwards to diverge (it is never overwritten).
+          if [ ! -f "$APP/.env.dev" ]; then
+            SEED=""
+            for f in "$PROD_APP/.env.production" "$PROD_APP/.env"; do
+              if [ -f "$f" ]; then SEED="$f"; break; fi
+            done
+            if [ -n "$SEED" ]; then
+              echo "Seeding .env.dev from $SEED"
+              cp "$SEED" "$APP/.env.dev"
+            else
+              echo "No prod env file found; dev runs with development defaults"
+              : > "$APP/.env.dev"
+            fi
+            chmod 600 "$APP/.env.dev"
+          fi
+
+          cd "$APP"
+          if [ ! -x venv/bin/python ]; then
+            echo "Creating virtual environment..."
+            python3 -m venv venv
+          fi
+          # Reinstall only when requirements.txt changes
+          REQ_HASH="$(sha256sum requirements.txt | cut -d' ' -f1)"
+          if [ "$(cat venv/.requirements.sha256 2>/dev/null || true)" != "$REQ_HASH" ]; then
+            venv/bin/python -m pip install -q --upgrade pip setuptools wheel
+            venv/bin/pip install -q -r requirements.txt
+            echo "$REQ_HASH" > venv/.requirements.sha256
+          fi
+
+          sed -e "s|@APP_DIR@|$APP|g" -e "s|@USER@|$(id -un)|g" /tmp/backend-dev.service \
+            | sudo tee /etc/systemd/system/backend-dev.service > /dev/null
+          rm -f /tmp/backend-dev.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable backend-dev
+          sudo systemctl restart backend-dev
+
+          echo "Waiting for backend-dev..."
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8081/health > /dev/null; then
+              echo "✅ Dev deployment completed: backend-dev healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ backend-dev did not become healthy"
+          sudo journalctl -u backend-dev -n 50 --no-pager
+          exit 1
+        DEPLOY_EOF
