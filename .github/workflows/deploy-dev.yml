@@ -1,0 +1,50 @@
+name: Deploy dev slot to EC2
+
+on:
+  # Called by ci.yml when a PR is merged into a test/* branch
+  workflow_call:
+    inputs:
+      branch:
+        description: 'Branch to deploy to the dev slot'
+        required: true
+        type: string
+    secrets:
+      EC2_PEM_KEY:
+        required: true
+      EC2_HOST:
+        required: true
+      EC2_USER:
+        required: true
+  # Manual redeploy from the Actions tab (any branch, e.g. a test/* branch you pushed to directly)
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy to the dev slot (e.g. test/my-feature)'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy dev slot
+    # One dev slot: let deploys finish in order instead of racing on the server
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+
+    steps:
+    - name: Checkout branch with pinned submodules
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch }}
+        submodules: recursive
+        token: ${{ github.token }}
+
+    - name: Deploy dev slot
+      uses: ./.github/actions/deploy-dev-to-ec2
+      with:
+        ec2_pem_key: ${{ secrets.EC2_PEM_KEY }}
+        ec2_host: ${{ secrets.EC2_HOST }}
+        ec2_user: ${{ secrets.EC2_USER }}
+        branch: ${{ inputs.branch }}
+        web_api_base_url: ${{ vars.DEV_WEB_API_BASE_URL }}

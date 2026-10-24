@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "test/**" ]
     types: [opened, synchronize, reopened, closed]
 
 jobs:
@@ -34,10 +34,19 @@ jobs:
 
   # Deploy when PR is merged to main
   deploy:
-    if: github.event.pull_request.merged == true && github.event.action == 'closed'
+    if: github.event.pull_request.merged == true && github.event.action == 'closed' && github.base_ref == 'main'
     needs: [test-api, test-web]
     uses: ./.github/workflows/deploy.yml
     with:
       branch: 'main'
       repo_base_dir: '/home/ubuntu'
+    secrets: inherit
+
+  # Deploy to the dev slot (port 4174) when a PR is merged into a test/* branch
+  deploy-dev:
+    if: github.event.pull_request.merged == true && github.event.action == 'closed' && startsWith(github.base_ref, 'test/')
+    needs: [test-api, test-web]
+    uses: ./.github/workflows/deploy-dev.yml
+    with:
+      branch: ${{ github.base_ref }}
     secrets: inherit
