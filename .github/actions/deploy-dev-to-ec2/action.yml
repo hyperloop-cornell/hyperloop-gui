@@ -94,7 +94,9 @@ runs:
     - name: Deploy dev slot
       shell: bash
       run: |
-        ssh ec2-deploy << 'DEPLOY_EOF'
+        # Run the script with a plain `bash -s`, not a login shell: a login shell runs
+        # ~/.bash_logout on exit, and under `set -e` its clear_console (no tty) turns `exit 0` into 1
+        ssh ec2-deploy bash -s << 'DEPLOY_EOF'
           set -euo pipefail
 
           DEV_DIR="${{ inputs.dev_dir }}"
@@ -170,7 +172,8 @@ runs:
 
           echo "Waiting for backend-dev..."
           for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8081/health > /dev/null; then
+            # Quiet: connection refused is expected while uvicorn starts
+            if curl -fs http://127.0.0.1:8081/health > /dev/null; then
               echo "✅ Dev deployment completed: backend-dev healthy"
               exit 0
             fi
